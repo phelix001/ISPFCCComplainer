@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from playwright.sync_api import sync_playwright, Page, TimeoutError as PlaywrightTimeout
+from playwright_stealth import Stealth
 
 from .config import Config
 from .database import SpeedTestResult
@@ -74,8 +75,14 @@ def file_fcc_complaint(
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=headless)
-        context = browser.new_context()
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        )
+        # Apply stealth mode to bypass Cloudflare bot detection
+        stealth = Stealth()
+        stealth.apply_stealth_sync(context)
         page = context.new_page()
+        page.set_default_timeout(60000)  # 60 second timeout
 
         try:
             # Login to FCC Consumer Complaints portal
@@ -103,21 +110,38 @@ def file_fcc_complaint(
 
 def _login_to_fcc(page: Page, config: Config) -> None:
     """Login to the FCC Consumer Complaints portal."""
+    import time
     print("Logging into FCC Consumer Complaints portal...")
 
     page.goto("https://consumercomplaints.fcc.gov/hc/en-us/signin")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
+    time.sleep(3)  # Wait for JS to render form
 
-    # Fill login form
-    page.fill('input[name="email"], input[type="email"]', config.fcc_username)
-    page.fill('input[name="password"], input[type="password"]', config.fcc_password)
+    print(f"  Page title: {page.title()}")
+    print(f"  URL: {page.url}")
+
+    # Check if we're stuck on Cloudflare challenge
+    if "moment" in page.title().lower():
+        print("  Waiting for Cloudflare challenge...")
+        time.sleep(10)
+
+    # Fill login form using data-testid selectors
+    page.fill('[data-testid="email-input"]', config.fcc_username)
+    page.fill('input[type="password"]', config.fcc_password)
 
     # Click sign in button
-    page.click('input[type="submit"], button[type="submit"]')
+    page.click('button[type="submit"]')
     page.wait_for_load_state("networkidle")
+    time.sleep(3)
 
-    # Verify login succeeded by checking we're no longer on signin page
-    if "signin" in page.url.lower():
+    print(f"  After login URL: {page.url}")
+    print(f"  After login title: {page.title()}")
+
+    # Verify login succeeded by checking page title (URL may lag behind)
+    title = page.title().lower()
+    if "sign in" in title or "signin" in title:
+        page.screenshot(path="/tmp/fcc_login_failed.png")
+        print("  Screenshot saved to /tmp/fcc_login_failed.png")
         raise RuntimeError("FCC login failed - check credentials")
 
     print("Successfully logged into FCC portal")
@@ -125,73 +149,52 @@ def _login_to_fcc(page: Page, config: Config) -> None:
 
 def _navigate_to_new_complaint(page: Page) -> None:
     """Navigate to the new complaint form for internet issues."""
+    import time
     print("Navigating to new complaint form...")
 
-    # Go to the main complaints page
-    page.goto("https://consumercomplaints.fcc.gov/hc/en-us/requests/new")
-    page.wait_for_load_state("networkidle")
+    # Go directly to the internet complaint form with ticket_form_id=38824 (Internet)
+    page.goto("https://consumercomplaints.fcc.gov/hc/en-us/requests/new?ticket_form_id=38824")
+    page.wait_for_load_state("domcontentloaded")
+    time.sleep(5)  # Wait for form to fully load
 
-    # Select Internet complaint type if there's a category selector
-    # The FCC form structure may vary, so we try multiple approaches
-    try:
-        # Look for internet/broadband category
-        internet_option = page.locator('text=Internet, text=Broadband').first
-        if internet_option.is_visible():
-            internet_option.click()
-            page.wait_for_load_state("networkidle")
-    except Exception:
-        pass  # Category may already be selected or form structure differs
+    print(f"  On page: {page.title()}")
+    print(f"  URL: {page.url}")
 
     print("On new complaint form")
 
 
 def _fill_complaint_form(page: Page, config: Config, complaint_text: str) -> None:
     """Fill out the FCC complaint form fields."""
+    import time
     print("Filling complaint form...")
 
-    # Common form fields - the FCC form may have various field names
-    # We try multiple selectors for each field type
+    # Fill the Subject field
+    subject = f"Internet Speed Below Advertised - {config.isp_name}"
+    page.fill('#request_subject', subject)
+    print(f"  Subject: {subject}")
 
-    # Provider/Company name
-    _try_fill_field(page, [
-        'input[name*="provider"]',
-        'input[name*="company"]',
-        'input[name*="carrier"]',
-        '#request_custom_fields_*[placeholder*="provider"]',
-    ], config.isp_name)
+    # Fill the Description field with the full complaint text
+    page.fill('#request_description', complaint_text)
+    print("  Description filled")
 
-    # Account number
-    _try_fill_field(page, [
-        'input[name*="account"]',
-        '#request_custom_fields_*[placeholder*="account"]',
-    ], config.isp_account_number)
+    # Select "Speed" from the Internet Issues dropdown (nesty-input custom dropdown)
+    try:
+        # Click the dropdown trigger to open it
+        dropdown_trigger = page.locator('#request_custom_fields_22609394').locator('..').locator('a.nesty-input').first
+        if dropdown_trigger.is_visible(timeout=3000):
+            dropdown_trigger.click()
+            time.sleep(1)
 
-    # Phone number
-    _try_fill_field(page, [
-        'input[name*="phone"]',
-        'input[type="tel"]',
-    ], config.phone_number)
+            # Click on "Speed" option
+            speed_option = page.locator('li:has-text("Speed")').first
+            if speed_option.is_visible(timeout=2000):
+                speed_option.click()
+                print("  Selected issue: Speed")
+                time.sleep(1)
+    except Exception as e:
+        print(f"  Could not select issue type: {e}")
 
-    # Email (may be pre-filled from login)
-    _try_fill_field(page, [
-        'input[name*="email"]:not([readonly])',
-    ], config.email)
-
-    # Service address
-    _try_fill_field(page, [
-        'input[name*="address"]',
-        'textarea[name*="address"]',
-    ], config.service_address)
-
-    # Main complaint description/details
-    _try_fill_field(page, [
-        'textarea[name*="description"]',
-        'textarea[name*="details"]',
-        'textarea[name*="complaint"]',
-        'textarea#request_description',
-        'textarea',
-    ], complaint_text)
-
+    time.sleep(1)
     print("Form filled")
 
 
@@ -213,33 +216,56 @@ def _try_fill_field(page: Page, selectors: list[str], value: str) -> bool:
 
 def _submit_complaint(page: Page) -> None:
     """Submit the complaint form."""
+    import time
     print("Submitting complaint...")
 
+    # Take screenshot before submit
+    page.screenshot(path="/tmp/fcc_before_submit.png")
+    print("  Screenshot saved: /tmp/fcc_before_submit.png")
+
     # Find and click the submit button
-    submit_selectors = [
-        'button[type="submit"]',
-        'input[type="submit"]',
-        'button:has-text("Submit")',
-        'button:has-text("File")',
-    ]
+    submit = page.locator('input[type="submit"][value="Submit"]')
+    if not submit.is_visible(timeout=5000):
+        # Try alternative selectors
+        submit = page.locator('input[type="submit"]').first
 
-    for selector in submit_selectors:
-        try:
-            button = page.locator(selector).first
-            if button.is_visible(timeout=2000):
-                button.click()
-                page.wait_for_load_state("networkidle")
+    submit.click()
+    print("  Clicked submit")
 
-                # Check for success indicators
-                if "thank" in page.content().lower() or "submitted" in page.content().lower():
-                    return
+    # Wait for response
+    time.sleep(5)
+    page.wait_for_load_state("domcontentloaded")
 
-                # Check we're not still on the form with errors
-                if "error" in page.content().lower():
-                    raise RuntimeError("Form submission returned errors")
+    # Take screenshot after submit
+    page.screenshot(path="/tmp/fcc_after_submit.png")
+    print("  Screenshot saved: /tmp/fcc_after_submit.png")
 
-                return
-        except PlaywrightTimeout:
-            continue
+    # Check for success - look for confirmation indicators
+    title = page.title().lower()
+    url = page.url.lower()
 
-    raise RuntimeError("Could not find or click submit button")
+    print(f"  Page title: {page.title()}")
+    print(f"  URL: {page.url}")
+
+    # Check if we're on a confirmation/ticket page (not the form anymore)
+    if "new" not in url and ("requests" in url or "tickets" in url):
+        print("  Redirected away from form - complaint submitted!")
+        return
+
+    # Check page title for confirmation
+    if "thank" in title or "confirmation" in title or "submitted" in title:
+        print("  Confirmation page detected!")
+        return
+
+    # Check if form still visible with errors
+    error_messages = page.locator('.error, [class*="error"], [role="alert"]').all()
+    visible_errors = [e for e in error_messages if e.is_visible(timeout=1000)]
+    if visible_errors:
+        for err in visible_errors[:3]:
+            print(f"  Error: {err.text_content()}")
+        raise RuntimeError("Form has validation errors")
+
+    # If still on the new request form, submission may have failed silently
+    if "new" in url:
+        print("  Warning: Still on form page after submit")
+        raise RuntimeError("Submission may have failed - still on form page")
