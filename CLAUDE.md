@@ -31,6 +31,12 @@ python -m src.main --history
 # View filed complaints
 python -m src.main --complaints
 
+# Daily complaint (aggregates previous day's tests)
+python -m src.daily_complaint --dry-run
+python -m src.daily_complaint
+python -m src.daily_complaint --date 2026-01-31  # specific date
+python -m src.daily_complaint --force            # file even with 0% failures
+
 # Setup cron job
 ./setup_cron.sh
 ```
@@ -48,14 +54,18 @@ Copy `.env.example` to `.env` and configure:
 
 ```
 src/
-├── config.py         # Environment variable loading (python-dotenv)
-├── database.py       # SQLite storage for speed_tests and complaints tables
-├── speedtest.py      # Wrapper around speedtest-cli JSON output
-├── fcc_complainer.py # Playwright browser automation for FCC portal
-└── main.py           # CLI entry point, orchestrates the flow
+├── config.py           # Environment variable loading (python-dotenv)
+├── database.py         # SQLite storage for speed_tests and complaints tables
+├── speedtest.py        # Wrapper around speedtest-cli JSON output
+├── fcc_complainer.py   # Playwright browser automation for FCC portal
+├── main.py             # CLI entry point, orchestrates per-test complaints
+├── daily_complaint.py  # Daily aggregation - files one complaint per day
+└── web.py              # Flask dashboard at port 5000
 ```
 
-**Flow:** `main.py` loads config → runs speed test → saves to DB → checks threshold → files complaint if needed
+**Flow:**
+- `main.py` loads config → runs speed test → saves to DB → checks threshold → files complaint if below threshold
+- `daily_complaint.py` aggregates previous day's tests → generates summary complaint → files once per day
 
 ## Exit Codes
 

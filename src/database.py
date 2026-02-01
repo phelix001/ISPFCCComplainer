@@ -166,3 +166,35 @@ class Database:
             )
             row = cursor.fetchone()
             return SpeedTestResult.from_row(row) if row else None
+
+    def get_speed_tests_for_date(self, date: datetime) -> list[SpeedTestResult]:
+        """Get all speed tests for a specific date."""
+        date_str = date.strftime('%Y-%m-%d')
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                """
+                SELECT id, timestamp, download_mbps, upload_mbps, ping_ms, server
+                FROM speed_tests
+                WHERE date(timestamp) = ?
+                ORDER BY timestamp ASC
+                """,
+                (date_str,),
+            )
+            return [SpeedTestResult.from_row(row) for row in cursor.fetchall()]
+
+    def get_daily_complaint_for_date(self, date: datetime) -> Optional[Complaint]:
+        """Check if a daily complaint was already filed for a specific date."""
+        date_str = date.strftime('%Y-%m-%d')
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                """
+                SELECT id, timestamp, speed_test_id, complaint_text, status
+                FROM complaints
+                WHERE date(timestamp) = ? AND status IN ('filed', 'daily_filed')
+                ORDER BY timestamp DESC
+                LIMIT 1
+                """,
+                (date_str,),
+            )
+            row = cursor.fetchone()
+            return Complaint.from_row(row) if row else None
