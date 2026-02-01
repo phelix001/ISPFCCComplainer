@@ -7,6 +7,94 @@ from .config import Config
 from .database import SpeedTestResult
 
 
+def generate_daily_summary_complaint(
+    config: Config,
+    date: datetime,
+    failed_tests: list[SpeedTestResult],
+    all_tests: list[SpeedTestResult],
+) -> str:
+    """Generate complaint text summarizing a day's speed tests.
+
+    Args:
+        config: Application configuration.
+        date: The date being complained about.
+        failed_tests: List of tests that failed to meet threshold.
+        all_tests: All tests for the day.
+
+    Returns:
+        Formatted complaint text for the FCC form.
+    """
+    date_str = date.strftime("%Y-%m-%d")
+
+    # Calculate statistics
+    downloads = [t.download_mbps for t in all_tests]
+    uploads = [t.upload_mbps for t in all_tests]
+    pings = [t.ping_ms for t in all_tests]
+
+    avg_download = sum(downloads) / len(downloads)
+    avg_upload = sum(uploads) / len(uploads)
+    avg_ping = sum(pings) / len(pings)
+    min_download = min(downloads)
+    max_download = max(downloads)
+    failure_rate = (len(failed_tests) / len(all_tests)) * 100
+    avg_pct = (avg_download / config.advertised_speed_mbps) * 100
+
+    worst_test = min(all_tests, key=lambda t: t.download_mbps)
+    worst_pct = (worst_test.download_mbps / config.advertised_speed_mbps) * 100
+
+    return f"""I am filing this complaint regarding inadequate internet service from {config.isp_name}.
+
+SERVICE DETAILS:
+- Account Number: {config.isp_account_number}
+- Service Address: {config.service_address}
+- Advertised Speed: {config.advertised_speed_mbps} Mbps
+- Minimum Acceptable ({config.threshold_percent}%): {config.threshold_speed_mbps:.1f} Mbps
+
+DAILY SUMMARY FOR {date_str}:
+- Total Speed Tests: {len(all_tests)}
+- Tests Below Threshold: {len(failed_tests)} ({failure_rate:.1f}%)
+- Average Download Speed: {avg_download:.2f} Mbps ({avg_pct:.1f}% of advertised)
+- Average Upload Speed: {avg_upload:.2f} Mbps
+- Average Ping: {avg_ping:.1f} ms
+- Minimum Download Speed: {min_download:.2f} Mbps
+- Maximum Download Speed: {max_download:.2f} Mbps
+
+WORST RESULT:
+- Date/Time: {worst_test.timestamp.strftime('%Y-%m-%d %H:%M:%S')}
+- Download Speed: {worst_test.download_mbps:.2f} Mbps ({worst_pct:.1f}% of advertised)
+- Upload Speed: {worst_test.upload_mbps:.2f} Mbps
+- Ping: {worst_test.ping_ms:.1f} ms
+- Test Server: {worst_test.server}
+
+ALL SPEED TESTS FOR {date_str}:
+{_format_all_tests(all_tests, config.advertised_speed_mbps, config.threshold_speed_mbps)}
+
+COMPLAINT:
+I am paying for {config.advertised_speed_mbps} Mbps internet service but on {date_str}, my average download speed was only {avg_download:.2f} Mbps ({avg_pct:.1f}% of advertised). Out of {len(all_tests)} speed tests conducted, {len(failed_tests)} ({failure_rate:.1f}%) showed download speeds below the {config.threshold_percent}% threshold.
+
+The worst test showed only {worst_test.download_mbps:.2f} Mbps ({worst_pct:.1f}% of advertised speed).
+
+This represents a consistent failure by {config.isp_name} to deliver the service I am paying for. I request that the FCC investigate this matter and require {config.isp_name} to either provide the advertised speeds or adjust my billing accordingly.
+
+This complaint was automatically generated based on automated speed testing throughout the day."""
+
+
+def _format_all_tests(
+    tests: list[SpeedTestResult], advertised_mbps: float, threshold_mbps: float
+) -> str:
+    """Format all tests for the complaint, marking failures."""
+    lines = []
+    for test in tests:
+        pct = (test.download_mbps / advertised_mbps) * 100
+        status = "FAIL" if test.download_mbps < threshold_mbps else "OK"
+        lines.append(
+            f"  [{status}] {test.timestamp.strftime('%H:%M:%S')}: "
+            f"{test.download_mbps:.2f} Mbps down, {test.upload_mbps:.2f} Mbps up, "
+            f"{test.ping_ms:.1f}ms ping ({pct:.1f}%)"
+        )
+    return "\n".join(lines)
+
+
 def generate_complaint_text(
     config: Config, speed_result: SpeedTestResult
 ) -> str:

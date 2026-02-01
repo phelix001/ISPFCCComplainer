@@ -30,10 +30,23 @@ class Config:
     # Database
     db_path: str
 
+    # Email notification settings (optional)
+    smtp_server: str | None
+    smtp_port: int
+    smtp_username: str | None
+    smtp_password: str | None
+    smtp_use_tls: bool
+    notification_email: str | None  # Where to send notifications
+
     @property
     def threshold_speed_mbps(self) -> float:
         """Calculate the minimum acceptable speed in Mbps."""
         return self.advertised_speed_mbps * (self.threshold_percent / 100)
+
+    @property
+    def email_enabled(self) -> bool:
+        """Check if email notifications are configured."""
+        return bool(self.smtp_server and self.notification_email)
 
 
 def load_config(env_path: str | None = None) -> Config:
@@ -70,4 +83,11 @@ def load_config(env_path: str | None = None) -> Config:
         phone_number=get_required("PHONE_NUMBER"),
         email=get_required("EMAIL"),
         db_path=os.getenv("DB_PATH", str(Path.cwd() / "speedtest_history.db")),
+        # Optional email notification settings
+        smtp_server=os.getenv("SMTP_SERVER"),
+        smtp_port=int(os.getenv("SMTP_PORT", "587")),
+        smtp_username=os.getenv("SMTP_USERNAME"),
+        smtp_password=os.getenv("SMTP_PASSWORD"),
+        smtp_use_tls=os.getenv("SMTP_USE_TLS", "true").lower() == "true",
+        notification_email=os.getenv("NOTIFICATION_EMAIL"),
     )

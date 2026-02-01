@@ -166,3 +166,57 @@ class Database:
             )
             row = cursor.fetchone()
             return SpeedTestResult.from_row(row) if row else None
+
+    def get_speed_tests_for_date(self, date: datetime) -> list[SpeedTestResult]:
+        """Get all speed tests for a specific date."""
+        start_of_day = date.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_of_day = date.replace(hour=23, minute=59, second=59, microsecond=999999)
+
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                """
+                SELECT id, timestamp, download_mbps, upload_mbps, ping_ms, server
+                FROM speed_tests
+                WHERE timestamp >= ? AND timestamp <= ?
+                ORDER BY timestamp ASC
+                """,
+                (start_of_day.isoformat(), end_of_day.isoformat()),
+            )
+            return [SpeedTestResult.from_row(row) for row in cursor.fetchall()]
+
+    def get_failed_tests_for_date(
+        self, date: datetime, threshold_mbps: float
+    ) -> list[SpeedTestResult]:
+        """Get speed tests that failed to meet threshold for a specific date."""
+        start_of_day = date.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_of_day = date.replace(hour=23, minute=59, second=59, microsecond=999999)
+
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                """
+                SELECT id, timestamp, download_mbps, upload_mbps, ping_ms, server
+                FROM speed_tests
+                WHERE timestamp >= ? AND timestamp <= ?
+                  AND download_mbps < ?
+                ORDER BY timestamp ASC
+                """,
+                (start_of_day.isoformat(), end_of_day.isoformat(), threshold_mbps),
+            )
+            return [SpeedTestResult.from_row(row) for row in cursor.fetchall()]
+
+    def was_complaint_filed_for_date(self, date: datetime) -> bool:
+        """Check if a complaint was already filed for a specific date."""
+        start_of_day = date.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_of_day = date.replace(hour=23, minute=59, second=59, microsecond=999999)
+
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                """
+                SELECT COUNT(*) FROM complaints
+                WHERE timestamp >= ? AND timestamp <= ?
+                  AND status = 'filed'
+                """,
+                (start_of_day.isoformat(), end_of_day.isoformat()),
+            )
+            count = cursor.fetchone()[0]
+            return count > 0

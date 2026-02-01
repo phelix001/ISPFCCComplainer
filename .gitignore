@@ -1,0 +1,18 @@
+# Environment and credentials
+.env
+
+# Database
+*.db
+
+# Logs
+*.log
+cron.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
