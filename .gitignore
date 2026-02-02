@@ -1,18 +1,16 @@
-# Environment and credentials
+# Environment files with credentials
 .env
+
+# Virtual environment
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
 
 # Database
 *.db
 
-# Logs
-*.log
-cron.log
-
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-venv/
-.venv/
+# IDE
+.vscode/
+.idea/

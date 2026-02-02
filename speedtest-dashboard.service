@@ -1,0 +1,17 @@
+[Unit]
+Description=Speed Test Dashboard Web Server
+After=network.target
+
+[Service]
+Type=simple
+User=dietpi
+WorkingDirectory=/home/dietpi/ISPFCCComplainer
+Environment="PATH=/home/dietpi/ISPFCCComplainer/venv/bin"
+ExecStart=/home/dietpi/ISPFCCComplainer/venv/bin/python -m src.web
+Restart=always
+RestartSec=5
+
+# Running on port 5000 - no special capabilities needed
+
+[Install]
+WantedBy=multi-user.target
