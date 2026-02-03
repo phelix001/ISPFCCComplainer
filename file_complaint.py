@@ -611,7 +611,11 @@ def file_complaint_with_browser(data: dict, complaint_text: str, dry_run: bool =
             }
             state_full = state_names.get(state.upper(), state)
             try:
-                state_dropdown = page.locator('label:has-text("State")').locator('..').locator('a.nesty-input')
+                # Use the specific field ID to avoid matching "State (on behalf of)"
+                state_dropdown = page.locator('a.nesty-input[aria-labelledby="request_custom_fields_22540114_label"]')
+                if not state_dropdown.is_visible(timeout=1000):
+                    # Fallback: get the first State label's nesty-input
+                    state_dropdown = page.locator('label:text-is("State")').locator('..').locator('a.nesty-input').first
                 if state_dropdown.is_visible(timeout=1000):
                     state_dropdown.scroll_into_view_if_needed()
                     time.sleep(0.2)
