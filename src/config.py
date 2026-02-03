@@ -26,6 +26,8 @@ class Config:
     service_address: str
     phone_number: str
     email: str
+    first_name: str
+    last_name: str
 
     # Database
     db_path: str
@@ -82,6 +84,8 @@ def load_config(env_path: str | None = None) -> Config:
         service_address=get_required("SERVICE_ADDRESS"),
         phone_number=get_required("PHONE_NUMBER"),
         email=get_required("EMAIL"),
+        first_name=get_required("FIRST_NAME"),
+        last_name=get_required("LAST_NAME"),
         db_path=os.getenv("DB_PATH", str(Path.cwd() / "speedtest_history.db")),
         # Optional email notification settings
         smtp_server=os.getenv("SMTP_SERVER"),

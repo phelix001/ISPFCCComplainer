@@ -1,11 +1,16 @@
 """FCC complaint automation using Playwright."""
 
+import os
 from datetime import datetime
+from pathlib import Path
 from playwright.sync_api import sync_playwright, Page, TimeoutError as PlaywrightTimeout
 from playwright_stealth import Stealth
 
 from .config import Config
 from .database import SpeedTestResult
+
+# Persistent browser storage for session cookies
+BROWSER_STATE_PATH = Path(__file__).parent.parent / "browser_state"
 
 
 def generate_daily_summary_complaint(
@@ -162,14 +167,18 @@ def file_fcc_complaint(
         return True
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=headless)
-        context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        # Use persistent context to save/restore session state (cookies, localStorage)
+        # This allows manually solving Cloudflare once and reusing the session
+        BROWSER_STATE_PATH.mkdir(exist_ok=True)
+        context = p.chromium.launch_persistent_context(
+            str(BROWSER_STATE_PATH),
+            headless=headless,
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         )
         # Apply stealth mode to bypass Cloudflare bot detection
         stealth = Stealth()
         stealth.apply_stealth_sync(context)
-        page = context.new_page()
+        page = context.pages[0] if context.pages else context.new_page()
         page.set_default_timeout(60000)  # 60 second timeout
 
         try:
@@ -193,7 +202,7 @@ def file_fcc_complaint(
         except Exception as e:
             raise RuntimeError(f"Failed to file FCC complaint: {e}")
         finally:
-            browser.close()
+            context.close()
 
 
 def _login_to_fcc(page: Page, config: Config) -> None:
@@ -209,9 +218,37 @@ def _login_to_fcc(page: Page, config: Config) -> None:
     print(f"  URL: {page.url}")
 
     # Check if we're stuck on Cloudflare challenge
-    if "moment" in page.title().lower():
-        print("  Waiting for Cloudflare challenge...")
-        time.sleep(10)
+    if "moment" in page.title().lower() or "cloudflare" in page.content().lower():
+        print("  Cloudflare challenge detected, attempting to solve...")
+
+        # Try to find and click the Turnstile checkbox
+        try:
+            # Wait for iframe to load
+            time.sleep(3)
+
+            # Try clicking the checkbox within the Turnstile widget
+            # The checkbox is typically inside an iframe
+            turnstile_frame = page.frame_locator('iframe[src*="challenges.cloudflare.com"]').first
+            checkbox = turnstile_frame.locator('input[type="checkbox"], .ctp-checkbox-label, [role="checkbox"]').first
+            if checkbox:
+                checkbox.click()
+                print("  Clicked Turnstile checkbox")
+                time.sleep(5)
+        except Exception as e:
+            print(f"  Could not click Turnstile checkbox: {e}")
+
+        # Wait up to 60 seconds for Cloudflare to pass
+        for i in range(12):
+            time.sleep(5)
+            title = page.title().lower()
+            if "moment" not in title and "cloudflare" not in title.lower():
+                print(f"  Cloudflare challenge passed after {(i+1)*5} seconds")
+                break
+            print(f"  Still waiting... ({(i+1)*5}s)")
+        else:
+            page.screenshot(path="/tmp/fcc_cloudflare_stuck.png")
+            print("  Screenshot saved: /tmp/fcc_cloudflare_stuck.png")
+            raise RuntimeError("Cloudflare challenge did not complete after 60 seconds")
 
     # Fill login form using data-testid selectors
     page.fill('[data-testid="email-input"]', config.fcc_username)

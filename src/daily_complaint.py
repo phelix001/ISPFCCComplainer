@@ -205,11 +205,21 @@ def main() -> int:
     try:
         # We need to override the complaint text generation, so we'll do it directly
         from playwright.sync_api import sync_playwright
+        from playwright_stealth import Stealth
+        from .fcc_complainer import BROWSER_STATE_PATH
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=not args.show_browser)
-            context = browser.new_context()
-            page = context.new_page()
+            # Use persistent context to save/restore session state (cookies)
+            BROWSER_STATE_PATH.mkdir(exist_ok=True)
+            context = p.chromium.launch_persistent_context(
+                str(BROWSER_STATE_PATH),
+                headless=not args.show_browser,
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            )
+            # Apply stealth mode
+            stealth = Stealth()
+            stealth.apply_stealth_sync(context)
+            page = context.pages[0] if context.pages else context.new_page()
 
             try:
                 from .fcc_complainer import (
@@ -287,7 +297,7 @@ def main() -> int:
                 return 1
 
             finally:
-                browser.close()
+                context.close()
 
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
