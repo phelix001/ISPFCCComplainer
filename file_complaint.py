@@ -396,7 +396,7 @@ def file_complaint_with_browser(data: dict, complaint_text: str, dry_run: bool =
                 ("Verizon", "Company"),
                 ("Current", "Relationship"),
                 ("Yes", "Contacted"),
-                ("No, I am filing", "On Behalf"),  # Full text to avoid matching "Illinois"
+                # "Filing on Behalf" is handled separately after form fill
             ]
 
             # Get fresh list of visible dropdowns
@@ -512,9 +512,6 @@ def file_complaint_with_browser(data: dict, complaint_text: str, dry_run: bool =
             fill_field_by_label("State", state, is_select=True)
             fill_field_by_label("Zip Code", zip_code)
             fill_field_by_label("Phone", phone_formatted)
-
-            # Also try Filing on Behalf dropdown
-            select_dropdown('request_custom_fields_22623494', 'No')
 
             # Fallback: try common input patterns if labels didn't work
             fallback_fields = [
@@ -637,6 +634,47 @@ def file_complaint_with_browser(data: dict, complaint_text: str, dry_run: bool =
                             print(f"  State not found: {state_full}")
             except Exception as e:
                 print(f"  State dropdown error: {e}")
+
+            # Select "Filing on Behalf of Someone" = "No"
+            print("Selecting 'Filing on Behalf of Someone'...")
+            filing_selected = False
+            try:
+                # Find by label text
+                label = page.locator('label:has-text("Filing on Behalf of Someone")').first
+                if label.is_visible(timeout=2000):
+                    container = label.locator('..')
+                    nesty = container.locator('a.nesty-input').first
+                    if nesty.is_visible(timeout=2000):
+                        nesty.scroll_into_view_if_needed()
+                        time.sleep(0.2)
+                        nesty.click()
+                        time.sleep(0.5)
+                        panel = page.locator('ul.nesty-panel:visible, div.nesty-panel:visible').first
+                        if panel.is_visible(timeout=2000):
+                            options = panel.locator('li').all()
+                            for opt in options:
+                                opt_text = opt.text_content().strip()
+                                if opt_text.lower().startswith("no"):
+                                    opt.click(force=True)
+                                    print(f"  Selected: {opt_text}")
+                                    filing_selected = True
+                                    time.sleep(0.3)
+                                    break
+                            if not filing_selected:
+                                page.keyboard.press("Escape")
+            except Exception as e:
+                print(f"  Error selecting Filing on Behalf: {e}")
+
+            if not filing_selected:
+                # Fallback: try by field ID
+                try:
+                    select_dropdown('request_custom_fields_22623494', 'No')
+                    filing_selected = True
+                except Exception:
+                    pass
+
+            if not filing_selected:
+                print("  WARNING: Could not select 'Filing on Behalf of Someone'. You may need to select it manually.")
 
             print("Form filled!")
 
