@@ -9,6 +9,13 @@ Automatically test your ISP speed and file FCC complaints when speeds fall below
 - Automatically files FCC complaints when speeds drop below threshold
 - Web dashboard to visualize speed test history
 
+## Architecture
+
+Speed testing and complaint filing can run on separate machines:
+
+- **Speed testing** can run on a headless device (e.g., a Raspberry Pi) cronjobbed to test every 30 minutes. It just needs a network connection and doesn't require a display.
+- **FCC complaint filing** is best run from your local machine on a schedule. The FCC portal uses a captcha, so having a browser with a display makes this more reliable. The local machine SSHs into the headless device to pull speed test data, then files the complaint.
+
 ## Setup
 
 ### 1. Create FCC Account
