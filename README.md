@@ -11,10 +11,18 @@ Automatically test your ISP speed and file FCC complaints when speeds fall below
 
 ## Architecture
 
-Speed testing and complaint filing can run on separate machines:
+This project has two parts that can run on the same machine or be split across two:
 
-- **Speed testing** can run on a headless device (e.g., a Raspberry Pi) cronjobbed to test every 30 minutes. It just needs a network connection and doesn't require a display.
-- **FCC complaint filing** is best run from your local machine on a schedule. The FCC portal uses a captcha, so having a browser with a display makes this more reliable. The local machine SSHs into the headless device to pull speed test data, then files the complaint.
+- **Speed testing** runs on a cron schedule, measuring your download/upload speeds and logging results to a database. This can run on a headless device (e.g., a Raspberry Pi) since it doesn't need a display.
+- **FCC complaint filing** opens a browser to submit complaints to the FCC portal. Because the FCC site uses a captcha, this works best on a machine with a display so the captcha can be solved. If your testing machine has a display, both can run on the same device.
+
+### Single machine setup
+
+Everything runs on one machine. Use this if your device has a display (desktop, laptop, etc.).
+
+### Split setup (headless tester + local filer)
+
+Your headless device (Pi, server, etc.) runs speed tests on a cron. Your local machine SSHs into it to pull the test data, then opens a browser to file the complaint.
 
 ## Setup
 
@@ -22,16 +30,17 @@ Speed testing and complaint filing can run on separate machines:
 
 Register at: https://consumercomplaints.fcc.gov/hc/en-us/signin
 
-### 2. Install Dependencies
+### 2. Speed Test Machine (Pi / headless device)
+
+Clone the repo and install dependencies:
 
 ```bash
+git clone https://github.com/phelix001/ISPFCCComplainer.git
+cd ISPFCCComplainer
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-playwright install chromium --with-deps
 ```
-
-### 3. Configure
 
 Copy `.env.example` to `.env` and fill in your details:
 
@@ -39,38 +48,73 @@ Copy `.env.example` to `.env` and fill in your details:
 cp .env.example .env
 ```
 
-Required settings:
+Required `.env` settings:
+- `ADVERTISED_SPEED_MBPS` - Your advertised speed (default: 1000)
+- `THRESHOLD_PERCENT` - Complaint threshold as % of advertised (default: 70)
 - `FCC_USERNAME` / `FCC_PASSWORD` - Your FCC portal credentials
 - `ISP_NAME` - Your ISP (e.g., "Verizon Fios")
 - `ISP_ACCOUNT_NUMBER` - Your account number
 - `SERVICE_ADDRESS` - Your service address
 - `PHONE_NUMBER` / `EMAIL` - Contact info for complaints
-- `ADVERTISED_SPEED_MBPS` - Your advertised speed (default: 1000)
-- `THRESHOLD_PERCENT` - File complaint when below this % (default: 70)
+- `FIRST_NAME` / `LAST_NAME` - Your name for the complaint form
 
-### 4. Test
+Test that speed testing works:
 
 ```bash
 source venv/bin/activate
 python -m src.main --dry-run
 ```
 
-### 5. Set Up Cron Job
-
-Run speed tests every 4 hours:
+Set up a cron job to test speed every 30 minutes. Use `--dry-run` so this machine only records results without trying to file complaints:
 
 ```bash
-./setup_cron.sh
+crontab -e
+```
+```
+*/30 * * * * cd /path/to/ISPFCCComplainer && /path/to/venv/bin/python -m src.main --dry-run >> cron.log 2>&1
 ```
 
-Or manually add to crontab:
+If this machine has a display and you want it to also file complaints, omit `--dry-run`:
 ```
-0 */4 * * * cd /path/to/ISPFCCComplainer && /path/to/venv/bin/python -m src.main >> cron.log 2>&1
+*/30 * * * * cd /path/to/ISPFCCComplainer && /path/to/venv/bin/python -m src.main >> cron.log 2>&1
 ```
 
-### 6. Web Dashboard (Optional)
+### 3. Complaint Filing Machine (local, only needed for split setup)
 
-Install and start the dashboard service:
+If your speed test machine is headless, set up a separate machine to file complaints.
+
+Install dependencies:
+
+```bash
+pip install playwright playwright-stealth
+playwright install chromium
+```
+
+Copy `file_complaint.py` to your local machine. Edit the defaults at the top of the file to match your setup:
+
+```python
+DEFAULT_PI_HOST = "your-pi-hostname"  # SSH hostname for your Pi
+DEFAULT_PI_USER = "your-pi-user"      # SSH username
+DEFAULT_PI_PATH = "/path/to/ISPFCCComplainer"  # Path on Pi
+```
+
+Make sure you can SSH to your Pi without a password prompt (set up SSH keys).
+
+Test it:
+
+```bash
+python file_complaint.py --dry-run
+```
+
+Schedule it with cron to run daily (e.g., 9 AM):
+
+```
+0 9 * * * cd /path/to/fcc-complainer && /path/to/python file_complaint.py >> complaint.log 2>&1
+```
+
+### 4. Web Dashboard (Optional)
+
+Install and start the dashboard service on the speed test machine:
 
 ```bash
 sudo cp speedtest-dashboard.service /etc/systemd/system/
@@ -88,6 +132,8 @@ Features:
 
 ## Commands
 
+On the speed test machine:
+
 ```bash
 # Run speed test (dry run - no complaint filed)
 python -m src.main --dry-run
@@ -103,6 +149,19 @@ python -m src.main --history
 
 # View filed complaints
 python -m src.main --complaints
+```
+
+On the complaint filing machine (split setup):
+
+```bash
+# Preview complaint without filing
+python file_complaint.py --dry-run
+
+# File complaint using Pi data
+python file_complaint.py
+
+# Specify a different Pi host
+python file_complaint.py --pi-host mypi --pi-user pi
 ```
 
 ## Exit Codes
