@@ -28,9 +28,9 @@ from pathlib import Path
 from statistics import mean
 
 # Configuration - edit these for your setup
-DEFAULT_PI_HOST = "raspberrypi"  # SSH hostname for your Pi
-DEFAULT_PI_USER = "pi"  # SSH username
-DEFAULT_PI_PATH = "/home/pi/ISPFCCComplainer"  # Path on Pi
+DEFAULT_PI_HOST = "dietpi"  # SSH hostname for your Pi
+DEFAULT_PI_USER = "dietpi"  # SSH username
+DEFAULT_PI_PATH = "/home/dietpi/ISPFCCComplainer"  # Path on Pi
 
 
 def fetch_data_from_pi(host: str, user: str, pi_path: str, date: str | None = None) -> dict:
